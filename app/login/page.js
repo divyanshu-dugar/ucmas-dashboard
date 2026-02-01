@@ -79,7 +79,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="mt-6 text-center text-sm text-gray-500">
-          © {new Date().getFullYear()} Your App Name
+          © {new Date().getFullYear()} UCMAS Dashboard
         </p>
       </div>
     </div>
