@@ -14,16 +14,24 @@ async function seed() {
 
   await mongoose.connect(MONGODB_URI);
 
-  const passwordHash = await bcrypt.hash("password123", 12);
+  const studentHash = await bcrypt.hash("student123", 12);
+  const instructorHash = await bcrypt.hash("test1234", 12);
 
-  const user = await User.create({
-    name: "Test Parent",
-    email: "parent@test.com",
-    passwordHash,
-    role: "parent",
+  const student = await User.create({
+    name: "Test Student",
+    email: "student@test.com",
+    passwordHash: studentHash,
+    role: "student",
   });
 
-  console.log("User created:", user.email);
+  const instructor = await User.create({
+    name: "Test Instructor",
+    email: "instructor@example.com",
+    passwordHash: instructorHash,
+    role: "instructor",
+  });
+
+  console.log("Seeded users:", student.email, instructor.email);
 
   await mongoose.disconnect();
 }

@@ -6,15 +6,18 @@ const UserSchema = new mongoose.Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
-    classDay: {
-    type: Number, // 0 = Sun ... 6 = Sat
-    required: true,
-    },
     role: {
       type: String,
-      enum: ["parent", "instructor"],
+      enum: ["student", "instructor"],
       required: true,
     },
+    // Student-specific fields
+    dob: { type: Date },
+    level: {
+      type: String,
+      enum: ["Elementary A", "Basic", "Junior 1", "Junior 2", "Intermediate", "Senior"],
+    },
+    batch: { type: mongoose.Schema.Types.ObjectId, ref: "Batch" },
   },
   { timestamps: true }
 );

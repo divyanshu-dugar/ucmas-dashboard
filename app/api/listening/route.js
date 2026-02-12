@@ -15,9 +15,9 @@ export async function GET() {
 
   await connectDB();
 
-  const weeks = await Listening.find({ student: session.user.id }).sort({
-    weekStart: -1,
-  });
+  const weeks = await Listening.find({ student: session.user.id })
+    .sort({ weekStart: -1 })
+    .populate("student", "name");
 
   return NextResponse.json(weeks);
 }
