@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 const ROWS = ["A", "B", "C", "D", "E"];
 
-export default function ParentListeningPage() {
+export default function StudentListeningPage() {
   const { data: session, status } = useSession();
 
   const [weeks, setWeeks] = useState([]);
@@ -14,10 +14,8 @@ export default function ParentListeningPage() {
   const [comments, setComments] = useState("");
   const [loading, setLoading] = useState(false);
 
-  /* ===================== FETCH WEEKS ===================== */
   useEffect(() => {
     if (status !== "authenticated") return;
-
     fetch("/api/listening")
       .then(res => res.json())
       .then(data => {
@@ -29,39 +27,24 @@ export default function ParentListeningPage() {
   const currentWeek = weeks[0];
   const usedRows = currentWeek?.rows?.map(r => r.row) || [];
 
-  /* ===================== SUBMIT ===================== */
   async function handleSubmit(e) {
     e.preventDefault();
     if (score === "") return;
-
     setLoading(true);
-
     const res = await fetch("/api/listening", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        row,
-        score: Number(score),
-        comments,
-      }),
+      body: JSON.stringify({ row, score: Number(score), comments }),
     });
-
     if (res.ok) {
       const updatedWeek = await res.json();
-
-      setWeeks(prev => [
-        updatedWeek,
-        ...prev.filter(w => w._id !== updatedWeek._id),
-      ]);
-
+      setWeeks(prev => [updatedWeek, ...prev.filter(w => w._id !== updatedWeek._id)]);
       setScore("");
       setComments("");
     }
-
     setLoading(false);
   }
 
-  /* ===================== STATES ===================== */
   if (status === "loading") {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500">
@@ -78,7 +61,6 @@ export default function ParentListeningPage() {
     );
   }
 
-  /* ===================== UI ===================== */
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">
       <div className="mx-auto max-w-3xl space-y-10">

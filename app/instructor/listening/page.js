@@ -1,103 +1,179 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
 
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const LEVELS = [
+  "Junior 1", "Junior 2", "Junior 3", "Basic",
+  "Elementary A", "Elementary B", "Intermediate A", "Intermediate B",
+  "Higher A", "Higher B", "Advance", "Grand"
+];
+
 export default function Page() {
-  // ---------------- STATES ----------------
+  const { data: session, status } = useSession();
+  
+  // Batch state
   const [batches, setBatches] = useState([]);
+  const [showBatchForm, setShowBatchForm] = useState(false);
+  const [batchForm, setBatchForm] = useState({ name: "", day: "6", time: "09:00" });
+  const [editingBatch, setEditingBatch] = useState(null);
+  const [loadingBatch, setLoadingBatch] = useState(false);
+  const [error, setError] = useState("");
+
+  // Student state
   const [students, setStudents] = useState([]);
+  const [showStudentForm, setShowStudentForm] = useState(false);
+  const [studentForm, setStudentForm] = useState({ name: "", dob: "", level: "", batch: "" });
+  const [editingStudent, setEditingStudent] = useState(null);
+  const [loadingStudent, setLoadingStudent] = useState(false);
+
+  // Listening data
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [listeningData, setListeningData] = useState([]);
 
-  // Batch form
-  const [showBatchForm, setShowBatchForm] = useState(false);
-  const [batchForm, setBatchForm] = useState({ name: "", schedule: "" });
-  const [editingBatch, setEditingBatch] = useState(null);
-
-  // Student form
-  const [showStudentForm, setShowStudentForm] = useState(false);
-  const [studentForm, setStudentForm] = useState({
-    name: "",
-    dob: "",
-    level: "",
-    batch: "",
-  });
-  const [editingStudent, setEditingStudent] = useState(null);
-
-  // ---------------- FETCH DATA ----------------
+  // Fetch batches and students
   useEffect(() => {
-    fetch("/api/batch").then(r => r.json()).then(setBatches);
-    fetch("/api/student").then(r => r.json()).then(setStudents);
-  }, []);
+    if (status === "authenticated") {
+      loadBatches();
+      loadStudents();
+    }
+  }, [status]);
 
+  // Fetch listening data for selected student
   useEffect(() => {
     if (selectedStudent) {
       fetch(`/api/listening?student=${selectedStudent._id}`)
         .then(r => r.json())
-        .then(setListeningData);
+        .then(setListeningData)
+        .catch(() => setListeningData([]));
     }
   }, [selectedStudent]);
 
-  // ---------------- BATCH CRUD ----------------
+  const loadBatches = async () => {
+    try {
+      const res = await fetch("/api/batch");
+      const data = await res.json();
+      setBatches(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to load batches:", err);
+    }
+  };
+
+  const loadStudents = async () => {
+    try {
+      const res = await fetch("/api/student");
+      const data = await res.json();
+      setStudents(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to load students:", err);
+    }
+  };
+
+  // Batch CRUD
   const handleBatchSubmit = async e => {
     e.preventDefault();
+    setError("");
+    setLoadingBatch(true);
 
-    await fetch("/api/batch", {
-      method: editingBatch ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        editingBatch
-          ? { ...batchForm, _id: editingBatch._id }
-          : batchForm
-      ),
-    });
+    try {
+      const dayInt = parseInt(batchForm.day);
+      const schedule = `${DAYS[dayInt]} ${batchForm.time}`;
+      const name = batchForm.name || schedule;
 
-    setShowBatchForm(false);
-    setBatchForm({ name: "", schedule: "" });
-    setEditingBatch(null);
-    fetch("/api/batch").then(r => r.json()).then(setBatches);
+      const method = editingBatch ? "PUT" : "POST";
+      const body = editingBatch
+        ? { _id: editingBatch._id, name, schedule }
+        : { name, schedule, instructor: session?.user?.id };
+
+      const res = await fetch("/api/batch", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to save batch");
+      }
+
+      setShowBatchForm(false);
+      setBatchForm({ name: "", day: "6", time: "09:00" });
+      setEditingBatch(null);
+      await loadBatches();
+    } catch (err) {
+      setError(err.message || "An error occurred");
+    } finally {
+      setLoadingBatch(false);
+    }
   };
 
   const handleEditBatch = batch => {
+    const parts = batch.schedule.split(" ");
+    const dayIndex = DAYS.indexOf(parts[0]);
+    const time = parts.slice(1).join(" ");
+    
     setEditingBatch(batch);
-    setBatchForm({ name: batch.name, schedule: batch.schedule });
+    setBatchForm({ name: batch.name, day: String(dayIndex), time });
     setShowBatchForm(true);
   };
 
   const handleDeleteBatch = async batch => {
-    await fetch("/api/batch", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ _id: batch._id }),
-    });
-    fetch("/api/batch").then(r => r.json()).then(setBatches);
+    if (!confirm("Delete this batch?")) return;
+
+    try {
+      const res = await fetch("/api/batch", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ _id: batch._id }),
+      });
+
+      if (!res.ok) throw new Error("Failed to delete batch");
+      await loadBatches();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
-  // ---------------- STUDENT CRUD ----------------
+  // Student CRUD
   const handleStudentSubmit = async e => {
     e.preventDefault();
+    setError("");
+    setLoadingStudent(true);
 
-    await fetch("/api/student", {
-      method: editingStudent ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        editingStudent
-          ? { ...studentForm, _id: editingStudent._id }
-          : studentForm
-      ),
-    });
+    try {
+      const method = editingStudent ? "PUT" : "POST";
+      const body = editingStudent
+        ? { _id: editingStudent._id, ...studentForm }
+        : studentForm;
 
-    setShowStudentForm(false);
-    setStudentForm({ name: "", dob: "", level: "", batch: "" });
-    setEditingStudent(null);
-    fetch("/api/student").then(r => r.json()).then(setStudents);
+      const res = await fetch("/api/student", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to save student");
+      }
+
+      setShowStudentForm(false);
+      setStudentForm({ name: "", dob: "", level: "", batch: "" });
+      setEditingStudent(null);
+      await loadStudents();
+    } catch (err) {
+      setError(err.message || "An error occurred");
+    } finally {
+      setLoadingStudent(false);
+    }
   };
 
   const handleEditStudent = student => {
     setEditingStudent(student);
     setStudentForm({
       name: student.name,
-      dob: student.dob ? student.dob.split("T")[0] : "",
+      dob: student.dob?.split("T")[0] || "",
       level: student.level,
       batch: student.batch?._id || "",
     });
@@ -105,121 +181,268 @@ export default function Page() {
   };
 
   const handleDeleteStudent = async student => {
-    await fetch("/api/student", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ _id: student._id }),
-    });
-    fetch("/api/student").then(r => r.json()).then(setStudents);
+    if (!confirm("Delete this student?")) return;
+
+    try {
+      const res = await fetch("/api/student", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ _id: student._id }),
+      });
+
+      if (!res.ok) throw new Error("Failed to delete student");
+      await loadStudents();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
-  // ---------------- UI ----------------
+  if (status === "loading") {
+    return <div className="p-4 text-center">Loading...</div>;
+  }
+
+  if (status !== "authenticated") {
+    return <div className="p-4 text-center text-red-600">Not authenticated</div>;
+  }
+
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-xl font-bold mb-4">Instructor Dashboard</h1>
+    <div className="p-4 max-w-2xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Instructor Dashboard</h1>
 
-      {/* ---------- BATCHES ---------- */}
-      <section className="mb-6">
-        <h2 className="text-lg font-semibold mb-2">Batches</h2>
+      {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">{error}</div>}
 
-        <button
-          className="bg-blue-500 text-white px-3 py-1 rounded mb-2"
-          onClick={() => {
-            setShowBatchForm(true);
-            setEditingBatch(null);
-            setBatchForm({ name: "", schedule: "" });
-          }}
-        >
-          Add Batch
-        </button>
-
-        <ul className="divide-y">
-          {batches.map(batch => (
-            <li key={batch._id} className="py-2 flex justify-between">
-              <span>{batch.name} ({batch.schedule})</span>
-              <div>
-                <button onClick={() => handleEditBatch(batch)} className="text-yellow-600 mr-2">Edit</button>
-                <button onClick={() => handleDeleteBatch(batch)} className="text-red-600">Delete</button>
-              </div>
-            </li>
-          ))}
-        </ul>
+      {/* BATCHES SECTION */}
+      <section className="mb-8 bg-white p-6 rounded-lg shadow">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Batches</h2>
+          <button
+            onClick={() => { setShowBatchForm(true); setEditingBatch(null); setBatchForm({ name: "", day: "6", time: "09:00" }); }}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            + Add Batch
+          </button>
+        </div>
 
         {showBatchForm && (
-          <form onSubmit={handleBatchSubmit} className="mt-4">
-            <input className="border p-2 mb-2 w-full" placeholder="Batch Name"
-              value={batchForm.name}
-              onChange={e => setBatchForm({ ...batchForm, name: e.target.value })}
-              required
-            />
-            <input className="border p-2 mb-2 w-full" placeholder="Schedule"
-              value={batchForm.schedule}
-              onChange={e => setBatchForm({ ...batchForm, schedule: e.target.value })}
-              required
-            />
-            <button className="bg-blue-500 text-white px-3 py-1 rounded mr-2">
-              {editingBatch ? "Update" : "Create"}
-            </button>
-            <button type="button" className="bg-gray-400 text-white px-3 py-1 rounded"
-              onClick={() => setShowBatchForm(false)}>
-              Cancel
-            </button>
+          <form onSubmit={handleBatchSubmit} className="mb-4 p-4 bg-gray-50 rounded">
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Batch Name (optional)</label>
+              <input
+                type="text"
+                placeholder="e.g., Saturday Morning"
+                value={batchForm.name}
+                onChange={e => setBatchForm({ ...batchForm, name: e.target.value })}
+                className="w-full border p-2 rounded"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Day</label>
+                <select
+                  value={batchForm.day}
+                  onChange={e => setBatchForm({ ...batchForm, day: e.target.value })}
+                  className="w-full border p-2 rounded"
+                >
+                  {DAYS.map((day, idx) => (
+                    <option key={idx} value={idx}>{day}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Time</label>
+                <input
+                  type="time"
+                  value={batchForm.time}
+                  onChange={e => setBatchForm({ ...batchForm, time: e.target.value })}
+                  className="w-full border p-2 rounded"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={loadingBatch}
+                className="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
+              >
+                {loadingBatch ? "Saving..." : editingBatch ? "Update" : "Create"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBatchForm(false)}
+                className="flex-1 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
           </form>
         )}
-      </section>
 
-      {/* ---------- STUDENTS ---------- */}
-      <section className="mb-6">
-        <h2 className="text-lg font-semibold mb-2">Students</h2>
-
-        <button
-          className="bg-green-500 text-white px-3 py-1 rounded mb-2"
-          onClick={() => {
-            setShowStudentForm(true);
-            setEditingStudent(null);
-            setStudentForm({ name: "", dob: "", level: "", batch: "" });
-          }}
-        >
-          Add Student
-        </button>
-
-        <ul className="divide-y">
-          {students.map(student => (
-            <li key={student._id} className="py-2 flex justify-between">
-              <span>{student.name} ({student.level})</span>
-              <div>
-                <button onClick={() => setSelectedStudent(student)} className="text-green-600 mr-2">View</button>
-                <button onClick={() => handleEditStudent(student)} className="text-yellow-600 mr-2">Edit</button>
-                <button onClick={() => handleDeleteStudent(student)} className="text-red-600">Delete</button>
+        <div className="space-y-2">
+          {batches.length === 0 ? (
+            <p className="text-gray-500">No batches yet.</p>
+          ) : (
+            batches.map(batch => (
+              <div key={batch._id} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                <div>
+                  <p className="font-medium">{batch.name || batch.schedule}</p>
+                  <p className="text-sm text-gray-600">{batch.schedule}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleEditBatch(batch)} className="text-blue-600 hover:underline">Edit</button>
+                  <button onClick={() => handleDeleteBatch(batch)} className="text-red-600 hover:underline">Delete</button>
+                </div>
               </div>
-            </li>
-          ))}
-        </ul>
+            ))
+          )}
+        </div>
       </section>
 
-      {/* ---------- LISTENING DATA ---------- */}
-      {selectedStudent && (
-        <section>
-          <h2 className="text-lg font-semibold mb-2">
-            Listening Data – {selectedStudent.name}
-          </h2>
+      {/* STUDENTS SECTION */}
+      <section className="mb-8 bg-white p-6 rounded-lg shadow">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Students</h2>
+          <button
+            onClick={() => { setShowStudentForm(true); setEditingStudent(null); setStudentForm({ name: "", dob: "", level: "", batch: "" }); }}
+            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+          >
+            + Add Student
+          </button>
+        </div>
 
-          <ul className="divide-y">
-            {listeningData.map((week, idx) => (
-              <li key={idx} className="py-2">
+        {showStudentForm && (
+          <form onSubmit={handleStudentSubmit} className="mb-4 p-4 bg-gray-50 rounded">
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Name</label>
+              <input
+                type="text"
+                value={studentForm.name}
+                onChange={e => setStudentForm({ ...studentForm, name: e.target.value })}
+                className="w-full border p-2 rounded"
+                required
+              />
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Date of Birth</label>
+              <input
+                type="date"
+                value={studentForm.dob}
+                onChange={e => setStudentForm({ ...studentForm, dob: e.target.value })}
+                className="w-full border p-2 rounded"
+                required
+              />
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Level</label>
+              <select
+                value={studentForm.level}
+                onChange={e => setStudentForm({ ...studentForm, level: e.target.value })}
+                className="w-full border p-2 rounded"
+                required
+              >
+                <option value="">-- Select Level --</option>
+                {LEVELS.map(level => (
+                  <option key={level} value={level}>{level}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Batch</label>
+              <select
+                value={studentForm.batch}
+                onChange={e => setStudentForm({ ...studentForm, batch: e.target.value })}
+                className="w-full border p-2 rounded"
+                required
+              >
+                <option value="">-- Select Batch --</option>
+                {batches.map(batch => (
+                  <option key={batch._id} value={batch._id}>
+                    {batch.name || batch.schedule}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={loadingStudent}
+                className="flex-1 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50"
+              >
+                {loadingStudent ? "Saving..." : editingStudent ? "Update" : "Create"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowStudentForm(false)}
+                className="flex-1 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
+        <div className="space-y-2">
+          {students.length === 0 ? (
+            <p className="text-gray-500">No students yet.</p>
+          ) : (
+            students.map(student => (
+              <div key={student._id} className="flex justify-between items-center p-3 bg-gray-50 rounded">
                 <div>
-                  Week: {new Date(week.weekStart).toLocaleDateString()} –{" "}
-                  {new Date(week.weekEnd).toLocaleDateString()}
+                  <p className="font-medium">{student.name}</p>
+                  <p className="text-sm text-gray-600">{student.level} • {student.batch?.name || "No batch"}</p>
                 </div>
-                <div>
-                  Scores: {week.rows.map(r => `${r.row}: ${r.score}`).join(", ")}
+                <div className="flex gap-2">
+                  <button onClick={() => setSelectedStudent(student)} className="text-blue-600 hover:underline">View</button>
+                  <button onClick={() => handleEditStudent(student)} className="text-blue-600 hover:underline">Edit</button>
+                  <button onClick={() => handleDeleteStudent(student)} className="text-red-600 hover:underline">Delete</button>
                 </div>
-                <div>
-                  Comments: {week.rows.map(r => r.comments).join(", ")}
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* LISTENING DATA SECTION */}
+      {selectedStudent && (
+        <section className="bg-white p-6 rounded-lg shadow">
+          <h2 className="text-xl font-semibold mb-4">Listening Data – {selectedStudent.name}</h2>
+          <div className="space-y-4">
+            {listeningData.length === 0 ? (
+              <p className="text-gray-500">No listening data yet.</p>
+            ) : (
+              listeningData.map(week => (
+                <div key={week._id} className="border p-3 rounded">
+                  <p className="font-medium mb-2">
+                    Week of {new Date(week.weekStart).toLocaleDateString()}
+                  </p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left">Row</th>
+                        <th className="text-left">Score</th>
+                        <th className="text-left">Comments</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {week.rows.map(row => (
+                        <tr key={row.row} className="border-b">
+                          <td>{row.row}</td>
+                          <td>{row.score}/10</td>
+                          <td>{row.comments || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </li>
-            ))}
-          </ul>
+              ))
+            )}
+          </div>
         </section>
       )}
     </div>

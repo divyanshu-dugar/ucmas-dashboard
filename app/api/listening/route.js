@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth/next";
+import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { connectDB } from "@/lib/db";
 import Listening from "@/models/Listening";
 import User from "@/models/User";
-import { getWeekRange } from "@/lib/week";
 
 /* ===================== GET ===================== */
-export async function GET() {
+export async function GET(req) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,9 +14,14 @@ export async function GET() {
 
   await connectDB();
 
-  const weeks = await Listening.find({ student: session.user.id })
+  // Allow instructor-style access: ?student=<id>
+  const { searchParams } = new URL(req.url);
+  const studentId = searchParams.get("student") || session.user.id;
+
+  const weeks = await Listening.find({ student: studentId })
     .sort({ weekStart: -1 })
-    .populate("student", "name");
+    .populate("student", "name")
+    .lean();
 
   return NextResponse.json(weeks);
 }
@@ -29,13 +33,16 @@ export async function POST(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { row, score, comments } = await req.json();
+  const body = await req.json();
+  const { row, score, comments, weekStart, weekEnd } = body;
+
+  const parsedScore = Number(score);
 
   if (
     !["A", "B", "C", "D", "E"].includes(row) ||
-    Number.isNaN(score) ||
-    score < 0 ||
-    score > 10
+    Number.isNaN(parsedScore) ||
+    parsedScore < 0 ||
+    parsedScore > 10
   ) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
@@ -47,57 +54,61 @@ export async function POST(req) {
     return NextResponse.json({ error: "Student not found" }, { status: 404 });
   }
 
-  if (student.classDay === undefined || student.classDay === null) {
-    return NextResponse.json(
-      { error: "Student class day not set" },
-      { status: 400 },
-    );
+  /* -------- Week Calculation -------- */
+  let start = weekStart ? new Date(weekStart) : null;
+  let end = weekEnd ? new Date(weekEnd) : null;
+
+  if (!start || !end) {
+    const classDay =
+      typeof student.classDay === "number" ? student.classDay : 6; // Saturday default
+
+    const today = new Date();
+    const diff = (today.getDay() - classDay + 7) % 7;
+
+    start = new Date(today);
+    start.setDate(today.getDate() - diff);
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
   }
 
-  const classDay = Number(student.classDay);
-  if (Number.isNaN(classDay) || classDay < 0 || classDay > 6) {
-    return NextResponse.json(
-      { error: "Invalid class day configuration" },
-      { status: 400 },
-    );
-  }
-
-  const { weekStart, weekEnd } = getWeekRange(classDay);
-
+  /* -------- Find or Create Week -------- */
   let week = await Listening.findOne({
     student: student._id,
-    weekStart: {
-      $gte: weekStart,
-      $lte: weekEnd,
-    },
+    weekStart: { $gte: start, $lte: end },
   });
 
   if (!week) {
     week = await Listening.create({
       student: student._id,
-      weekStart,
-      weekEnd,
+      weekStart: start,
+      weekEnd: end,
       rows: [],
       createdBy: session.user.id,
     });
   }
 
-  // Prevent duplicate rows
-  if (week.rows.some((r) => r.row === row)) {
+  /* -------- Validation -------- */
+  if (week.rows.some(r => r.row === row)) {
     return NextResponse.json(
       { error: "Row already exists for this week" },
-      { status: 409 },
+      { status: 409 }
     );
   }
 
   if (week.rows.length >= 5) {
-    return NextResponse.json({ error: "Max 5 rows per week" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Maximum 5 rows per week" },
+      { status: 400 }
+    );
   }
 
   week.rows.push({
     row,
-    score,
-    comments: comments || "",
+    score: parsedScore,
+    comments: comments?.trim() || "",
   });
 
   await week.save();

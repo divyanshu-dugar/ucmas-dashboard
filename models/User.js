@@ -18,6 +18,10 @@ const UserSchema = new mongoose.Schema(
       enum: ["Elementary A", "Basic", "Junior 1", "Junior 2", "Intermediate", "Senior"],
     },
     batch: { type: mongoose.Schema.Types.ObjectId, ref: "Batch" },
+    classDay: {
+      type: Number, // 0 = Sunday, 6 = Saturday
+      required: false,
+    },
   },
   { timestamps: true }
 );

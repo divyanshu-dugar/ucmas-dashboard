@@ -7,8 +7,8 @@ export default async function HomePage() {
 
   if (!session) redirect("/login");
 
-  if (session.user.role === "parent") {
-    redirect("/parent/listening");
+  if (session.user.role === "student") {
+    redirect("/student/listening");
   }
 
   if (session.user.role === "instructor") {
